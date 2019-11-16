@@ -35,10 +35,15 @@ import com.owncloud.android.lib.common.OwnCloudAccount;
 import com.owncloud.android.lib.common.OwnCloudClient;
 import com.owncloud.android.lib.common.OwnCloudClientManagerFactory;
 import com.owncloud.android.lib.common.UserInfo;
+import com.owncloud.android.lib.common.accounts.AccountUtils;
 import com.owncloud.android.lib.common.operations.RemoteOperationResult;
 import com.owncloud.android.lib.common.utils.Log_OC;
 import com.owncloud.android.lib.resources.status.OwnCloudVersion;
 import com.owncloud.android.lib.resources.users.GetUserInfoRemoteOperation;
+
+import org.jetbrains.annotations.NotNull;
+
+import java.net.URI;
 
 import javax.inject.Inject;
 
@@ -49,6 +54,7 @@ public class UserAccountManagerImpl implements UserAccountManager {
 
     private static final String TAG = UserAccountManagerImpl.class.getSimpleName();
     private static final String PREF_SELECT_OC_ACCOUNT = "select_oc_account";
+    private static final User ANONYMOUS_USER = new AnonymousUser();
 
     private Context context;
     private AccountManager accountManager;
@@ -103,6 +109,7 @@ public class UserAccountManagerImpl implements UserAccountManager {
         return false;
     }
 
+    @Override
     @Nullable
     public Account getCurrentAccount() {
         Account[] ocAccounts = getAccounts();
@@ -137,6 +144,49 @@ public class UserAccountManagerImpl implements UserAccountManager {
         }
 
         return defaultAccount;
+    }
+
+    /**
+     * Get user. If user cannot be retrieved due to data error, anonymous user is returned instead.
+     *
+     *
+     * @return User instance
+     */
+    @NotNull
+    @Override
+    public User getUser() {
+        OwnCloudAccount ownCloudAccount = getCurrentOwnCloudAccount();
+        if (ownCloudAccount == null) {
+            return ANONYMOUS_USER;
+        }
+
+        Account account = ownCloudAccount.getSavedAccount();
+
+        /*
+         * Server version
+         */
+        String serverVersionStr = accountManager.getUserData(account, AccountUtils.Constants.KEY_OC_VERSION);
+        OwnCloudVersion serverVersion;
+        if (serverVersionStr != null) {
+            serverVersion = new OwnCloudVersion(serverVersionStr);
+        } else {
+            serverVersion = MainApp.MINIMUM_SUPPORTED_SERVER_VERSION;
+        }
+
+        /*
+         * Server address
+         */
+        String serverAddressStr = accountManager.getUserData(account, AccountUtils.Constants.KEY_OC_BASE_URL);
+        if (serverAddressStr == null || serverAddressStr.isEmpty()) {
+            return ANONYMOUS_USER;
+        }
+        URI serverUri = URI.create(serverAddressStr); // TODO: validate
+
+        return new RegisteredUser(
+            ownCloudAccount.getSavedAccount(),
+            ownCloudAccount,
+            new Server(serverUri, serverVersion)
+        );
     }
 
     @Override
@@ -197,6 +247,7 @@ public class UserAccountManagerImpl implements UserAccountManager {
         return result;
     }
 
+    @Deprecated
     @Override
     @NonNull
     public OwnCloudVersion getServerVersion(Account account) {
